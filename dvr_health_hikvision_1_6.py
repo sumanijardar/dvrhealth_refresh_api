@@ -114,7 +114,13 @@ def get_db_connection():
 
 def safe_print(message):
     with print_lock:
-        print(message, flush=True)
+        try:
+            print(message, flush=True)
+        except UnicodeEncodeError:
+            try:
+                print(str(message).encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8"), flush=True)
+            except Exception:
+                pass
 
 
 def db_execute(sql, params=None, fetch=False, many=False):
@@ -288,6 +294,7 @@ class NVRHealthCheck:
         self.freespace_db = freespace_db
         self.recording_from_db = recording_from_db
         self.recording_to_db = recording_to_db
+        self.cameras_status = {}
 
         self.session = requests.Session()
         self.session.auth = HTTPDigestAuth(username, password)
@@ -476,6 +483,7 @@ class NVRHealthCheck:
                 else:
                     cameras_status[cam_id] = f"Online ({resolution})"
 
+            self.cameras_status = cameras_status
             return True, cameras_status
         except Exception as e:
             self._log_api("/ISAPI/System/Video/inputs/channels", "GET", 0, "", str(e))
@@ -492,11 +500,11 @@ class NVRHealthCheck:
         except ValueError:
             return val.replace("T", " ").replace("Z", "")
 
-    def _search_payload(self, start_str, end_str):
+    def _search_payload(self, start_str, end_str, track_id=101):
         return f"""<?xml version='1.0' encoding='UTF-8'?>
 <CMSearchDescription version='1.0' xmlns='http://www.isapi.org/ver20/XMLSchema'>
     <searchID>{{812F04E0-4089-11A3-9A0C-0305E82C2906}}</searchID>
-    <trackList><trackID>101</trackID></trackList>
+    <trackList><trackID>{track_id}</trackID></trackList>
     <timeSpanList>
         <timeSpan>
             <startTime>{start_str}</startTime>
@@ -520,37 +528,57 @@ class NVRHealthCheck:
         now = datetime.now()
         start_dt = end_dt = ""
 
-        try:
-            old = (now - timedelta(days=300)).strftime("%Y-%m-%d")
-            cur = now.strftime("%Y-%m-%d")
-            payload = self._search_payload(f"{old}T00:00:00Z", f"{cur}T23:59:59Z")
-
-            r = self.session.post(url, data=payload, headers=headers, timeout=T_SEARCH_BROAD)
-            self._log_api("/ISAPI/ContentMgmt/search", "POST", r.status_code, (r.text or "")[:200])
-            if r.status_code == 200:
-                txt = r.text or ""
-                s = re.findall(r"<startTime[^>]*>([^<]+)</startTime>", txt, re.I)
-                e = re.findall(r"<endTime[^>]*>([^<]+)</endTime>", txt, re.I)
-                if s:
-                    start_dt = s[0].strip()
-                if e:
-                    end_dt = e[-1].strip()
-        except Exception as ex:
-            self._log_api("/ISAPI/ContentMgmt/search", "POST", 0, "", str(ex))
-
-        if not end_dt:
-            for rnd in range(3):
+        # Prioritize online/working camera tracks (e.g. cam 1 -> 101, cam 2 -> 201)
+        candidate_tracks = []
+        for cam_id, st in getattr(self, "cameras_status", {}).items():
+            if "Online" in str(st) or "Working" in str(st):
                 try:
-                    d = (now - timedelta(days=rnd)).strftime("%Y-%m-%d")
-                    payload = self._search_payload(f"{d}T00:00:00Z", f"{d}T23:59:59Z")
-                    r = self.session.post(url, data=payload, headers=headers, timeout=T_SEARCH_LOOP)
-                    if r.status_code == 200:
-                        e = re.findall(r"<endTime[^>]*>([^<]+)</endTime>", r.text or "", re.I)
-                        if e:
-                            end_dt = e[-1].strip()
-                            break
-                except Exception:
-                    continue
+                    candidate_tracks.append(int(cam_id) * 100 + 1)
+                except (ValueError, TypeError):
+                    pass
+        if 101 not in candidate_tracks:
+            candidate_tracks.append(101)
+        for t in [201, 301, 401]:
+            if t not in candidate_tracks:
+                candidate_tracks.append(t)
+
+        for track_id in candidate_tracks:
+            try:
+                old = (now - timedelta(days=300)).strftime("%Y-%m-%d")
+                cur = now.strftime("%Y-%m-%d")
+                payload = self._search_payload(f"{old}T00:00:00Z", f"{cur}T23:59:59Z", track_id=track_id)
+
+                r = self.session.post(url, data=payload, headers=headers, timeout=T_SEARCH_BROAD)
+                self._log_api("/ISAPI/ContentMgmt/search", "POST", r.status_code, (r.text or "")[:200])
+                if r.status_code == 200:
+                    txt = r.text or ""
+                    s = re.findall(r"<startTime[^>]*>([^<]+)</startTime>", txt, re.I)
+                    if s:
+                        start_dt = s[0].strip()
+
+                        # Accurately find the latest recording date by checking backwards from today
+                        for rnd in range(5):
+                            try:
+                                d = (now - timedelta(days=rnd)).strftime("%Y-%m-%d")
+                                payload_day = self._search_payload(f"{d}T00:00:00Z", f"{d}T23:59:59Z", track_id=track_id)
+                                r_day = self.session.post(url, data=payload_day, headers=headers, timeout=T_SEARCH_LOOP)
+                                if r_day.status_code == 200:
+                                    e = re.findall(r"<endTime[^>]*>([^<]+)</endTime>", r_day.text or "", re.I)
+                                    if e:
+                                        end_dt = e[-1].strip()
+                                        break
+                            except Exception:
+                                continue
+
+                        if not end_dt:
+                            e_all = re.findall(r"<endTime[^>]*>([^<]+)</endTime>", txt, re.I)
+                            if e_all:
+                                end_dt = e_all[-1].strip()
+
+                        # Successfully found recording on this track
+                        break
+            except Exception as ex:
+                self._log_api("/ISAPI/ContentMgmt/search", "POST", 0, "", str(ex))
 
         if start_dt or end_dt:
             return True, {"start": self._clean_dt(start_dt), "end": self._clean_dt(end_dt)}

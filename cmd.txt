@@ -1,0 +1,141 @@
+================================================================================
+           DVR HEALTH CHECK & REFRESH API - EXECUTION INSTRUCTIONS
+================================================================================
+
+1. PREREQUISITES
+--------------------------------------------------------------------------------
+1. Ensure MySQL / XAMPP is running:
+   - Host: localhost
+   - User: root
+   - Password: (blank)
+   - Database: esurv
+
+2. Install Required Python Packages:
+   pip install fastapi uvicorn pydantic requests pymysql DBUtils opencv-python numpy ping3
+
+3. Ensure FFMPEG is present:
+   - Configured Path: C:\Users\LENOVO\Desktop\suman\Suman\DVRHealth\dvrhealth\ffmpeg.exe
+
+
+================================================================================
+2. HOW TO RUN THE REFRESH APIS & HEALTH CHECK SCRIPTS
+================================================================================
+Open Command Prompt (CMD) or PowerShell and navigate to the project folder:
+
+   cd C:\Users\LENOVO\Desktop\suman\Suman\DVRHealth\refreshapi
+
+Run the appropriate script based on the DVR brand:
+
+A. HIKVISION DVR (Runs on Port 8006):
+   python dvr_health_hikvision_1_6.py
+
+B. CPPLUS / DAHUA DVR (Runs on Port 8005):
+   python dvr_health_cpplus_dahua__1_6.py
+
+C. HIKVISION NVR (Runs on Port 8004):
+   python dvr_health_hikvision_nvr__1_6.py
+
+D. UNV / UNIVIEW DVR (Runs on Port 8003):
+   python dvr_health_unv__1_6.py
+
+* Note: Each script simultaneously executes the main health check loop and
+  the FastAPI background server for live instant refresh calls.
+
+
+================================================================================
+3. API PORTS & ENDPOINTS SUMMARY
+================================================================================
+DVR Type        Port     Refresh Endpoint URL                         Swagger / Docs URL
+------------------------------------------------------------------------------------------
+UNV             8003     http://127.0.0.1:8003/refresh/unv             http://127.0.0.1:8003/docs
+Hikvision NVR   8004     http://127.0.0.1:8004/refresh/hikvision_nvr   http://127.0.0.1:8004/docs
+CPPLUS / Dahua  8005     http://127.0.0.1:8005/refresh/cpplus          http://127.0.0.1:8005/docs
+Hikvision DVR   8006     http://127.0.0.1:8006/refresh/hikvision       http://127.0.0.1:8006/docs
+
+
+================================================================================
+4. HOW TO TEST USING POSTMAN
+================================================================================
+
+Step 1: Check Server Health (GET Request)
+----------------------------------------
+- Method:  GET
+- URL:     http://127.0.0.1:8006/health
+- Expected Response:
+  {
+    "status": "ok",
+    "server": "Hikvision DVR Refresh API v1.5",
+    "timestamp": "2026-10-14 11:45:00"
+  }
+
+
+Step 2: Trigger Live Refresh (POST Request)
+------------------------------------------
+- Method:  POST
+- URL:     http://127.0.0.1:8006/refresh/hikvision
+           (Change port and path according to the DVR type table above)
+
+- Headers:
+  Key:            Content-Type
+  Value:          application/json
+
+- Body:
+  Select 'raw' and choose 'JSON' from the dropdown.
+
+  Example JSON Body:
+  {
+    "ip": "172.17.12.254"
+  }
+
+- Click 'Send'
+
+Expected Success Response:
+--------------------------
+{
+  "success": true,
+  "ip": "172.17.12.254",
+  "atm_id": "T1NH000952311",
+  "dvr_type": "Hikvision",
+  "elapsed_seconds": 4.76,
+  "timestamp": "2026-10-14 11:45:12",
+  "ping": "Online",
+  "login": "Working",
+  "hdd": "Working",
+  "hdd_total_mb": 1907729,
+  "hdd_free_mb": 0,
+  "recording": "Working",
+  "rec_start": "2025-12-25 11:51:09",
+  "rec_end": "2026-10-14 11:43:16",
+  "cameras_working": 3,
+  "cameras_total": 4,
+  "camera_detail": {
+    "1": "Offline",
+    "2": "Online (1080P25 Lite)",
+    "3": "Online (HD720P25)",
+    "4": "Online (HD720P25)"
+  },
+  "dvr_time": "2026-10-14 11:44:38",
+  "message": "Hikvision DVR health check complete in 4.76s — DB updated"
+}
+
+
+================================================================================
+5. TROUBLESHOOTING COMMON ERRORS
+================================================================================
+1. Error: "connect ECONNREFUSED 127.0.0.1:<PORT>"
+   - Cause: The python script for that DVR type is not running.
+   - Solution: Start the python script in CMD or terminal.
+
+2. Error: "connect ECONNREFUSED <DVR_IP>:<PORT>"
+   - Cause: You entered the DVR IP inside the Postman URL instead of localhost/127.0.0.1.
+   - Solution: Use http://127.0.0.1:<PORT>/refresh/... in the URL, and put the DVR IP inside the JSON body.
+
+3. Error: "405 Method Not Allowed"
+   - Cause: Selected GET instead of POST in Postman.
+   - Solution: Change HTTP Method to POST.
+
+4. Error: "404 Not Found: IP '...' not found in all_dvr_live"
+   - Cause: The IP does not exist in the 'all_dvr_live' table or has a different dvrname.
+   - Solution: Ensure the IP and correct dvrname exist in the 'all_dvr_live' database table.
+
+================================================================================
