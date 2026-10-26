@@ -535,7 +535,8 @@ def update_database(results, site):
         time_diff = ""
         if dvr_time_str:
             try:
-                c = now.replace(microsecond=0)
+                fetch_time = results.get("dvr_time_fetched_at") or now
+                c = fetch_time.replace(microsecond=0)
                 s = datetime.strptime(dvr_time_str, "%Y-%m-%d %H:%M:%S")
                 time_diff = str(c - s) if c >= s else f"+{s - c}"
             except Exception:
@@ -702,6 +703,7 @@ def process_unv_site(site):
 
         # 3. Time
         results["dvr_time"] = client.get_time()
+        results["dvr_time_fetched_at"] = datetime.now()
 
         # 4. HDD
         if skip_api:

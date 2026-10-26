@@ -212,7 +212,7 @@ def update_database(dvr_data):
         diff = None
         try:
             if dvr_time_str and dvr_time_str != "N/A":
-                cTime = now.replace(microsecond=0)
+                cTime = (sys_info.get("dvr_time_fetched_at") or now).replace(microsecond=0)
                 systemTime = datetime.strptime(dvr_time_str, "%Y-%m-%d %H:%M:%S")
                 diff = (cTime - systemTime) if cTime >= systemTime else f"+{systemTime - cTime}"
         except Exception:
@@ -611,12 +611,14 @@ class NVRHealthCheck:
 
         ok, tval = self.check_dvr_time()
         if ok:
+            fetch_time = datetime.now()
             try:
                 data["system"]["dvr_time"] = datetime.fromisoformat(
                     tval.replace("Z", "+00:00")
                 ).strftime("%Y-%m-%d %H:%M:%S")
             except ValueError:
                 data["system"]["dvr_time"] = tval.replace("T", " ").replace("Z", "")
+            data["system"]["dvr_time_fetched_at"] = fetch_time
 
         _, data["hdd"] = self.check_hdd()
         _, data["cameras"] = self.check_cameras()

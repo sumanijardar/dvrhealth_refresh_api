@@ -292,6 +292,7 @@ def get_dvr_status(ip_address, port, auth, atm_id="", dvr_name="CPPLUS", capacit
             if "=" in time_str:
                 time_str = time_str.split("=")[1].strip()
             dvr_data["system"]["sysDateTime"] = time_str
+            dvr_data["system"]["dvr_time_fetched_at"] = datetime.now()
             dvr_data["system"]["login_success"] = True
             dvr_data["system"]["login_status"] = 0
             dvr_data["http_status"] = 200
@@ -930,7 +931,8 @@ def process_single_ip(sn, atmid, ip_address, port, username, password, dvr_name,
     diff = None
     if dvr_time:
         try:
-            cTime = datetime.now().replace(microsecond=0)
+            fetch_time = final_data["system"].get("dvr_time_fetched_at") or datetime.now()
+            cTime = fetch_time.replace(microsecond=0)
             systemTime = datetime.strptime(dvr_time, "%Y-%m-%d %H:%M:%S")
             diff = cTime - systemTime if cTime >= systemTime else f"+{systemTime - cTime}"
         except Exception:
